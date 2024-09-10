@@ -115,19 +115,51 @@ app.get('/api/v1/clients/:id', (req, res) => {
  *
  */
 app.put('/api/v1/clients/:id', (req, res) => {
-  const id = parseInt(req.params.id , 10);
+  const id = parseInt(req.params.id, 10);
   const { valid, messageObj } = validateId(id);
   if (!valid) {
-    res.status(400).send(messageObj);
+    return res.status(400).send(messageObj);
   }
 
   let { status, priority } = req.body;
   let clients = db.prepare('select * from clients').all();
   const client = clients.find(client => client.id === id);
 
-  /* ---------- Update code below ----------*/
+  if (!client) {
+    return res.status(404).send({ message: 'Client not found' });
+  }
 
+  if (status) {
+    client.status = status;
+  }
 
+  if (priority !== undefined) {
+    priority = parseInt(priority, 10);
+    if (Number.isNaN(priority) || priority < 1) {
+      return res.status(400).send({ message: 'Invalid priority' });
+    }
+
+    // Remove the client from the current list
+    clients = clients.filter(c => c.id !== id);
+
+    // Insert the client at the new priority position
+    const sameStatusClients = clients.filter(c => c.status === client.status);
+    sameStatusClients.splice(priority - 1, 0, client);
+
+    // Reassign priorities
+    sameStatusClients.forEach((c, index) => {
+      c.priority = index + 1;
+    });
+
+    // Merge back the updated clients
+    clients = clients.filter(c => c.status !== client.status).concat(sameStatusClients);
+  }
+
+  // Update the database
+  const updateStmt = db.prepare('UPDATE clients SET status = ?, priority = ? WHERE id = ?');
+  clients.forEach(c => {
+    updateStmt.run(c.status, c.priority, c.id);
+  });
 
   return res.status(200).send(clients);
 });
